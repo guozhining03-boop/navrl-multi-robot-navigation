@@ -1,0 +1,56 @@
+{
+  "static": {
+    "success_rate": 0.8,
+    "collision_rate": 0.2,
+    "timeout_rate": 0.0,
+    "mean_episode_reward": 5323.615569420992,
+    "mean_robot_reward": 887.2692615701653,
+    "mean_avg_speed": 1.9063508225740013,
+    "mean_min_clearance": 0.8833156175522149,
+    "mean_steps": 168.7,
+    "robots_evaluated": 60,
+    "reward_breakdown": {
+      "r_vel": 318.37452079248607,
+      "r_alive": 168.9,
+      "r_static": 229.86885695697154,
+      "r_dyn": 171.02326550942945,
+      "p_smooth": -0.8973816887215185
+    }
+  },
+  "dynamic": {
+    "success_rate": 0.95,
+    "collision_rate": 0.05,
+    "timeout_rate": 0.0,
+    "mean_episode_reward": 5993.078975055083,
+    "mean_robot_reward": 998.8464958425138,
+    "mean_avg_speed": 1.916994403727475,
+    "mean_min_clearance": 1.1567042751807792,
+    "mean_steps": 187.1,
+    "robots_evaluated": 60,
+    "reward_breakdown": {
+      "r_vel": 352.0146386608499,
+      "r_alive": 187.15,
+      "r_static": 255.63939911941756,
+      "r_dyn": 206.0079074174251,
+      "p_smooth": -1.9654493551783538
+    }
+  },
+  "mixed": {
+    "success_rate": 0.9166666666666666,
+    "collision_rate": 0.08333333333333333,
+    "timeout_rate": 0.0,
+    "mean_episode_reward": 5842.425286322793,
+    "mean_robot_reward": 973.7375477204655,
+    "mean_avg_speed": 1.9060438646032554,
+    "mean_min_clearance": 0.9662153378934996,
+    "mean_steps": 182.98333333333332,
+    "robots_evaluated": 60,
+    "reward_breakdown": {
+      "r_vel": 344.11159806850424,
+      "r_alive": 183.06666666666666,
+      "r_static": 249.9092926614348,
+      "r_dyn": 198.16528620145021,
+      "p_smooth": -1.5152958775901417
+    }
+  }
+}
