@@ -31,13 +31,13 @@ are the start positions.*
 ## 2. Reward functions
 
 The reward is computed once per step in the NavRL environment
-(`isaac-training/training/scripts/env.py`, lines 548–577):
+([`isaac-training/training/scripts/env.py`](https://github.com/Zhefan-Xu/NavRL/blob/main/isaac-training/training/scripts/env.py), lines 548–577):
 
 ```
 r_t = R_vel + 1.0 + 1.0·R_static + 1.0·R_dyn - 0.1·P_smooth - 8.0·P_height
 ```
 
-| Term | Formula | Code (`isaac-training/training/scripts/env.py`) | Range | When it is positive / negative |
+| Term | Formula | Code ([`env.py`](https://github.com/Zhefan-Xu/NavRL/blob/main/isaac-training/training/scripts/env.py)) | Range | When it is positive / negative |
 |---|---|---|---|---|
 | R_vel goal progress | v · (g - p) / ‖g - p‖ | `vel_direction = rpos / distance.clamp_min(1e-6)`; `reward_vel = (self.drone.vel_w[..., :3] * vel_direction).sum(-1)` (L557–558) | -2.0 … +2.0 (‖v‖ ≤ 2.0 m/s) | Positive when velocity points toward the goal, negative when it points away. |
 | +1.0 alive bonus | constant +1 per step | `self.reward = reward_vel + 1. + …` (L575; the literal `1.` is the alive bonus) | +1 | Always positive; keeps the reward baseline above zero so every step of an unfinished episode is worth something. |
@@ -52,6 +52,11 @@ r_t = R_vel + 1.0 + 1.0·R_static + 1.0·R_dyn - 0.1·P_smooth - 8.0·P_height
 > nearest surface is close; the clamp only protects the logarithm itself. The
 > smoothness and height penalties are norms / squares, so their raw values are
 > non-negative and only become non-positive after the negative weights are applied.
+
+> **Where the code lives:** the quoted lines come from the upstream NavRL
+> environment `env.py` (linked in the table header). This repository re-implements
+> the same dense reward in `compute_reward()` of [`evaluate.py`](evaluate.py)
+> (L93–112); the height penalty is inactive in the 2-D adaptation.
 
 `R_g` (reach-goal +10), `R_c` (collision -0.5) and `R_to` (timeout -10) are
 commented out / missing in this code base, so they contribute 0.00. The reward
