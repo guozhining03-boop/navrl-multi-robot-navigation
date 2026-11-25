@@ -22,6 +22,12 @@ the distance to the goal is below 0.3 m.
 
 ![Robot trajectories](results/trajectories.png)
 
+![Demo animation](results/demo.gif)
+
+*Demo: one episode per scenario, animated along the recorded trajectories. The
+orange dashed circles mark the moving obstacles; stars are goals and squares
+are the start positions.*
+
 ## 2. Reward functions
 
 The reward is computed once per step in the NavRL environment
@@ -31,14 +37,21 @@ The reward is computed once per step in the NavRL environment
 r_t = R_vel + 1.0 + 1.0·R_static + 1.0·R_dyn - 0.1·P_smooth - 8.0·P_height
 ```
 
-| Term | Formula | Code | Range | When it is positive / negative |
+| Term | Formula | Code (`isaac-training/training/scripts/env.py`) | Range | When it is positive / negative |
 |---|---|---|---|---|
-| R_vel goal progress | v · (g - p) / ||g - p|| | L556–558 | -2.0 … +2.0 | Positive when velocity points toward the goal, negative when it points away. |
-| +1.0 alive bonus | constant | L575 | +1 | Always positive; keeps the reward baseline above zero so every step of an unfinished episode is worth something. |
-| R_static static safety | mean over beams of log(min(max(s_i, r_min))) | L549 | -2.30 … +1.39 | Positive (+1.39 = log 4) when every beam is clear; decreases logarithmically; becomes negative as soon as the nearest surface is closer than 1 m. |
-| R_dyn dynamic safety | log(min(d_closest, r_max)) | L554 | -2.30 … +1.39 | Same shape as R_static, but for the nearest moving agent/obstacle. |
-| P_smooth action smoothness | ||v_t - v_{t-1}||, weight -0.1 | L560–563 | 0 … -0.4 | Only negative. Large velocity jumps are penalised; smooth control loses almost nothing. |
-| P_height altitude | -8 · (exceedance of ±0.2 m outside the flight band)^2 | L563–568 | ≤ 0 | Only negative; 3-D (UAV) term. Inactive in the 2-D adaptation and set to 0. |
+| R_vel goal progress | v · (g - p) / ‖g - p‖ | `vel_direction = rpos / distance.clamp_min(1e-6)`; `reward_vel = (self.drone.vel_w[..., :3] * vel_direction).sum(-1)` (L557–558) | -2.0 … +2.0 (‖v‖ ≤ 2.0 m/s) | Positive when velocity points toward the goal, negative when it points away. |
+| +1.0 alive bonus | constant +1 per step | `self.reward = reward_vel + 1. + …` (L575; the literal `1.` is the alive bonus) | +1 | Always positive; keeps the reward baseline above zero so every step of an unfinished episode is worth something. |
+| R_static static safety | mean over beams of log(d) | `reward_safety_static = torch.log((self.lidar_range - self.lidar_scan).clamp(min=1e-6, max=self.lidar_range)).mean(dim=(2, 3))` (L549) | inner distance d ∈ [1e-6, 4.0] m, strictly > 0; log d ≤ log 4 ≈ +1.39; lower bound is governed by the 0.3 m collision radius | Positive (+1.39 = log 4) when every beam is clear; decreases logarithmically; becomes negative as the nearest surface grows close. |
+| R_dyn dynamic safety | log(d_closest) | `reward_safety_dynamic = torch.log(closest_dyn_obs_distance_reward.clamp(min=1e-6, max=self.lidar_range)).mean(dim=-1, keepdim=True)` (L554) | inner distance d ∈ [1e-6, 4.0] m, strictly > 0; ≤ +1.39 | Same shape as R_static, but for the nearest moving agent/obstacle. |
+| P_smooth action smoothness | ‖v_t - v_{t-1}‖, weight -0.1 | `penalty_smooth = (self.drone.vel_w[..., :3] - self.prev_drone_vel_w).norm(dim=-1)` (L561); applied as `- 0.1 * penalty_smooth` in `self.reward = …` (L575) | norm ≥ 0; contribution ≤ 0 | Only negative. Large velocity jumps are penalised; smooth control loses almost nothing. |
+| P_height altitude | 8 · (exceedance of ±0.2 m outside the flight band)², weight -8.0 | `penalty_height = torch.zeros(...)`; `penalty_height[z > top+0.2] = (z - top - 0.2)²`; `penalty_height[z < bot-0.2] = (bot - 0.2 - z)²` (L564–566); applied as `- 8.0 * penalty_height` in `self.reward = …` (L575) | squared exceedance ≥ 0; contribution ≤ 0 | Only negative; 3-D (UAV) term. Inactive in the 2-D adaptation and set to 0. |
+
+> **Note on the safety terms:** the distance passed to `torch.log` is clamped to
+> `[1e-6, lidar_range]`, so its argument is always **strictly positive** — it is
+> never zero or negative. The logged value itself can still be negative when the
+> nearest surface is close; the clamp only protects the logarithm itself. The
+> smoothness and height penalties are norms / squares, so their raw values are
+> non-negative and only become non-positive after the negative weights are applied.
 
 `R_g` (reach-goal +10), `R_c` (collision -0.5) and `R_to` (timeout -10) are
 commented out / missing in this code base, so they contribute 0.00. The reward
@@ -176,29 +189,69 @@ navrl-multi-robot-navigation/
     ├── episodes.csv     # per-run outcomes
     ├── trajectories.png
     ├── metrics_bar.png
-    └── reward_curve.png
+    ├── reward_curve.png
+    └── demo.gif           # animated demo of one episode per scenario
 ```
 
 ## 6. Setup and run
 
-This project depends on the NavRL code base (quick-demos agent, environment
-and utilities) and its released checkpoint.
+### 6.1 Prerequisites
 
-1. Clone the NavRL repository and create the `NavRL` conda environment per its
-   installation instructions; place this project's scripts under the NavRL
-   `homework/` folder (or adjust the `sys.path` in `evaluate.py`).
-2. Put the pretrained checkpoint at `quick-demos/ckpts/navrl_checkpoint.pt`.
-3. Activate the environment and run the evaluation:
+- Ubuntu 22.04 / WSL2, conda (Miniconda). CPU is sufficient for this
+  inference-only evaluation; no Isaac Sim or GPU is required to reproduce the
+  reported metrics.
+- The upstream NavRL code base and its released pretrained checkpoint.
+
+### 6.2 Get the code and environment
+
+1. Clone the upstream NavRL repository:
+
+```bash
+git clone https://github.com/Zhefan-Xu/NavRL.git
+cd NavRL
+```
+
+2. Create the deployment conda environment following the upstream instructions:
+
+```bash
+cd isaac-training
+bash setup_deployment.sh
+conda activate NavRL
+```
+
+3. Clone this course repository:
+
+```bash
+git clone https://github.com/guozhining03-boop/navrl-multi-robot-navigation.git
+```
+
+4. Place `evaluate.py` and `scenarios.py` under `NavRL/homework/` (the layout
+   used for this project), or keep this repository's root and point the
+   `sys.path` entry in `evaluate.py` to the upstream `quick-demos/` folder.
+
+5. Put the released checkpoint at `quick-demos/ckpts/navrl_checkpoint.pt`.
+
+### 6.3 Install this project's dependencies
 
 ```bash
 conda activate NavRL
+pip install -r requirements.txt
+```
+
+`requirements.txt` lists `numpy`, `matplotlib` and CPU `torch`; the remaining
+NavRL runtime packages are installed by `setup_deployment.sh`.
+
+### 6.4 Run the evaluation
+
+```bash
+cd NavRL/homework   # or this repository root if you adjusted the path
 python evaluate.py --episodes 10 --steps 350
 ```
 
-Outputs are written to `results/` (`metrics.json`, `episodes.csv` and the three
-figures).
+Outputs are written to `results/` (`metrics.json`, `episodes.csv`, the three
+figures and the demo animation).
 
-### Run the self-check
+### 6.5 Run the self-check
 
 ```bash
 python tests/check_metrics.py
@@ -207,3 +260,26 @@ python tests/check_metrics.py
 The script verifies that success + collision + timeout rates sum to 1, that
 60 robot runs were evaluated per scenario, and that the five active reward
 terms sum to the mean reward per robot.
+
+## 7. References
+
+1. Z. Xu, X. Han, H. Shen, H. Jin, K. Shimada, "NavRL: Learning Safe Flight in
+   Dynamic Environments," *IEEE Robotics and Automation Letters*, vol. 10,
+   no. 4, pp. 3668–3675, 2025.
+   [IEEE Xplore](https://ieeexplore.ieee.org/document/10904341) ·
+   [arXiv preprint](https://arxiv.org/pdf/2409.15634) ·
+   [demo video](https://youtu.be/EbeJW8-YlvI)
+2. Upstream code base: [Zhefan-Xu/NavRL](https://github.com/Zhefan-Xu/NavRL)
+
+```bibtex
+@ARTICLE{NavRL,
+  author={Xu, Zhefan and Han, Xinming and Shen, Haoyu and Jin, Hanyu and Shimada, Kenji},
+  journal={IEEE Robotics and Automation Letters},
+  title={NavRL: Learning Safe Flight in Dynamic Environments},
+  year={2025},
+  volume={10},
+  number={4},
+  pages={3668-3675},
+  doi={10.1109/LRA.2025.3546069}
+}
+```

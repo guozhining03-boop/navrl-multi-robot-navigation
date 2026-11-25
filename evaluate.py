@@ -21,9 +21,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib import cm
+from matplotlib.animation import FuncAnimation, PillowWriter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.abspath(os.path.join(HERE, "..", "quick-demos")))
+for _p in (os.path.join(HERE, "..", "quick-demos"),
+           os.path.join(HERE, "..", "NavRL", "quick-demos"),
+           os.path.expanduser("~/NavRL/quick-demos")):
+    if os.path.isdir(_p):
+        sys.path.insert(0, os.path.abspath(_p))
+        break
 
 import torch  # noqa: E402
 from env import sample_free_start  # noqa: E402
@@ -287,6 +293,55 @@ def plot_trajectories(episodes, out_png):
     plt.close(fig)
 
 
+def plot_demo_gif(episodes, out_gif, fps=10, frame_step=3):
+    """Animate the first episode of each scenario along the recorded trajectories."""
+    kinds = list(episodes.keys())
+    titles = {"static": "a) Static obstacles", "dynamic": "b) Dynamic obstacles",
+              "mixed": "c) Mixed obstacles"}
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4.6), dpi=100)
+
+    data = {}
+    max_len = 1
+    for kind, ep in episodes.items():
+        traj = [np.array(tr) for tr in ep["traj"]]
+        max_len = max(max_len, max(len(t) for t in traj))
+        cmap = cm.get_cmap("tab10", len(traj))
+        data[kind] = {"traj": traj, "goals": ep["goals"], "static": ep["static"],
+                      "snaps": ep["dyn_snapshots"], "cmap": cmap}
+
+    def update(frame):
+        for ax, kind in zip(axes, kinds):
+            ax.clear()
+            d = data[kind]
+            for ox, oy, orr in d["static"]:
+                ax.add_patch(Circle((ox, oy), orr, color="#9ca3af"))
+            if d["snaps"]:
+                snap = d["snaps"][min(frame // 20, len(d["snaps"]) - 1)]
+                for p in snap:
+                    ax.add_patch(Circle((p[0], p[1]), 0.5, color="#f59e0b",
+                                        alpha=0.35, linestyle="--", fill=False))
+            for i, tr in enumerate(d["traj"]):
+                upto = min(frame + 1, len(tr))
+                ax.plot(tr[:upto, 0], tr[:upto, 1], color=d["cmap"](i), lw=1.3)
+                ax.plot(tr[upto - 1, 0], tr[upto - 1, 1], "o",
+                        color=d["cmap"](i), ms=5)
+                ax.plot(d["goals"][i][0], d["goals"][i][1], "*",
+                        color=d["cmap"](i), ms=9)
+            ax.set_xlim(-19, 19)
+            ax.set_ylim(-19, 19)
+            ax.set_aspect("equal")
+            ax.set_title(titles[kind], fontsize=11)
+            ax.set_xlabel("x position (m)")
+            ax.set_ylabel("y position (m)")
+            ax.grid(linestyle=":", alpha=0.35)
+            ax.spines[["top", "right"]].set_visible(False)
+
+    frames = list(range(0, max_len, frame_step))
+    anim = FuncAnimation(fig, update, frames=frames, interval=1000 / fps, repeat=False)
+    anim.save(out_gif, writer=PillowWriter(fps=fps))
+    plt.close(fig)
+
+
 def plot_reward_curve(episodes, out_png):
     fig, ax = plt.subplots(figsize=(8, 4.2), dpi=150)
     colors = {"static": "#2f6f4e", "dynamic": "#b45309", "mixed": "#4b5563"}
@@ -382,6 +437,7 @@ def main():
     plot_metrics(stats, os.path.join(args.out, "metrics_bar.png"))
     plot_trajectories(episodes, os.path.join(args.out, "trajectories.png"))
     plot_reward_curve(episodes, os.path.join(args.out, "reward_curve.png"))
+    plot_demo_gif(episodes, os.path.join(args.out, "demo.gif"))
 
     print("\n=== summary (%.1f s) ===" % (time.time() - t0))
     print(json.dumps(stats, indent=2))
